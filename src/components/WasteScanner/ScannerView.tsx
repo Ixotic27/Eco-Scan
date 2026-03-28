@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Upload, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, Upload, RefreshCw, Sparkles, AlertCircle, X } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { classifyWaste } from '../../lib/gemini';
 import { ScannedItem, ScanResult } from '../../types';
@@ -11,12 +11,68 @@ const ScannerView: React.FC = () => {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Two separate inputs: one for camera (capture), one for file upload
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Live camera state
+  const [showCamera, setShowCamera] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const { addScannedItem } = useAppContext();
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
+
+  const startCamera = async () => {
+    try {
+      setError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      streamRef.current = stream;
+      setShowCamera(true);
+      // Need a small timeout to ensure video element is rendered
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }, 50);
+    } catch (err) {
+      setError('Could not access camera. Please check permissions or use Upload.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        stopCamera();
+        setImage(dataUrl);
+        analyzeImage(dataUrl);
+      }
+    }
+  };
 
   const processFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -36,7 +92,6 @@ const ScannerView: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) processFile(file);
-    // Reset input so same file can be selected again
     e.target.value = '';
   };
 
@@ -81,6 +136,7 @@ const ScannerView: React.FC = () => {
     setError(null);
   };
 
+  // 1. Result/Scanning View
   if (image) {
     return (
       <div className="max-w-lg mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
@@ -112,10 +168,40 @@ const ScannerView: React.FC = () => {
     );
   }
 
+  // 2. Live Camera View
+  if (showCamera) {
+    return (
+      <div className="max-w-lg mx-auto bg-black rounded-2xl shadow-xl overflow-hidden relative">
+        <video 
+          ref={videoRef} 
+          playsInline 
+          className="w-full h-96 object-cover"
+        />
+        <button 
+          onClick={stopCamera}
+          className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+        >
+          <X size={20} />
+        </button>
+        <div className="absolute font-bold text-white/50 top-4 left-4 text-sm tracking-widest drop-shadow-md">
+          ECOSCAN Live
+        </div>
+        <div className="absolute bottom-0 inset-x-0 p-6 bg-gradient-to-t from-black/80 to-transparent flex justify-center pb-8">
+          <button
+            onClick={capturePhoto}
+            className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 hover:scale-105 active:scale-95 transition-transform flex items-center justify-center shadow-xl"
+          >
+            <div className="w-12 h-12 bg-white rounded-full border border-gray-100"></div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Initial View (Upload / Start Camera)
   return (
     <div className="max-w-lg mx-auto">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-        {/* Header */}
         <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white">
           <div className="flex items-center gap-2 mb-1">
             <Sparkles size={18} />
@@ -126,7 +212,6 @@ const ScannerView: React.FC = () => {
         </div>
 
         <div className="p-6">
-          {/* Drop zone */}
           <div
             ref={dropZoneRef}
             onDrop={handleDrop}
@@ -138,22 +223,19 @@ const ScannerView: React.FC = () => {
               <Camera size={28} className="text-green-600 dark:text-green-400" />
             </div>
             <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">Drop image here or click to upload</p>
-            <p className="text-gray-400 text-xs">Supports JPG, PNG, WEBP, HEIC</p>
+            <p className="text-gray-400 text-xs">Supports JPG, PNG, WEBP</p>
           </div>
 
-          {/* Two distinct buttons */}
           <div className="grid grid-cols-2 gap-3">
-            {/* Camera button — opens device camera directly */}
             <button
               id="camera-capture-btn"
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={startCamera}
               className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-green-500/25 hover:-translate-y-0.5"
             >
               <Camera size={18} />
               Take Photo
             </button>
 
-            {/* Upload button — opens file picker */}
             <button
               id="upload-file-btn"
               onClick={() => uploadInputRef.current?.click()}
@@ -164,17 +246,6 @@ const ScannerView: React.FC = () => {
             </button>
           </div>
 
-          {/* Camera input — capture="environment" opens rear camera on mobile */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-
-          {/* File upload input — no capture attribute, opens file picker on all devices */}
           <input
             ref={uploadInputRef}
             type="file"
@@ -206,8 +277,7 @@ const ScannerView: React.FC = () => {
         </div>
       </div>
 
-      {/* Reset if there was an error and image is null */}
-      {error && (
+      {error && !showCamera && (
         <button
           onClick={resetScan}
           className="mt-3 w-full flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"

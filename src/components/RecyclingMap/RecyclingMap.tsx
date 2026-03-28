@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapPin, Navigation, Loader2, AlertCircle, Filter, RefreshCw } from 'lucide-react';
+import { MapPin, Navigation, Loader2, AlertCircle, Filter, RefreshCw, X, Map as MapIcon, Phone, Clock, ExternalLink } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -78,7 +78,6 @@ function getCachedLocation(): [number, number] | null {
     const raw = sessionStorage.getItem(LOCATION_CACHE_KEY);
     if (raw) {
       const { lat, lon, ts } = JSON.parse(raw);
-      // Cache valid for 10 minutes
       if (Date.now() - ts < 10 * 60 * 1000) return [lat, lon];
     }
   } catch {}
@@ -120,6 +119,14 @@ const wasteIcon = L.divIcon({
   iconSize: [34, 34], iconAnchor: [17, 17],
 });
 
+// Determine stock image based on amenity type
+const getFacilityImage = (amenity: string) => {
+  if (amenity === 'recycling') {
+    return 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&q=80&w=600';
+  }
+  return 'https://images.unsplash.com/photo-1605600659908-0ef719419d41?auto=format&fit=crop&q=80&w=600';
+};
+
 const RecyclingMap: React.FC = () => {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [locationSource, setLocationSource] = useState<'gps' | 'ip' | null>(null);
@@ -130,6 +137,7 @@ const RecyclingMap: React.FC = () => {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [hasFetchedOnce, setHasFetchedOnce] = useState(false);
+  const [selectedFacility, setSelectedFacility] = useState<RecyclingLocation | null>(null);
 
   const fetchCenters = useCallback(async (lat: number, lon: number, rad: number) => {
     setIsFetching(true);
@@ -158,7 +166,6 @@ const RecyclingMap: React.FC = () => {
     setIsLocating(true);
     setLocationError(null);
 
-    // 1. Try sessionStorage cache first (avoids re-asking permission)
     const cached = getCachedLocation();
     if (cached) {
       setUserLocation(cached);
@@ -168,7 +175,6 @@ const RecyclingMap: React.FC = () => {
       return;
     }
 
-    // 2. Try browser GPS
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -180,7 +186,6 @@ const RecyclingMap: React.FC = () => {
           fetchCenters(coords[0], coords[1], radius);
         },
         async () => {
-          // 3. GPS denied/failed — fall back to IP silently
           try {
             const coords = await getLocationFromIP();
             cacheLocation(coords[0], coords[1]);
@@ -188,7 +193,7 @@ const RecyclingMap: React.FC = () => {
             setLocationSource('ip');
             fetchCenters(coords[0], coords[1], radius);
           } catch {
-            setLocationError('Unable to determine your location. Please click "My Location" to try again.');
+            setLocationError('Unable to determine your location. Please try again.');
           } finally {
             setIsLocating(false);
           }
@@ -196,7 +201,6 @@ const RecyclingMap: React.FC = () => {
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
       );
     } else {
-      // 3. No GPS API at all
       try {
         const coords = await getLocationFromIP();
         cacheLocation(coords[0], coords[1]);
@@ -211,16 +215,13 @@ const RecyclingMap: React.FC = () => {
     }
   }, [radius, fetchCenters]);
 
-  // Run once on mount
   useEffect(() => { resolveLocation(); }, []); // eslint-disable-line
 
-  // Refetch when radius changes (only if we have location)
   useEffect(() => {
     if (userLocation) fetchCenters(userLocation[0], userLocation[1], radius);
   }, [radius]); // eslint-disable-line
 
   const handleRefresh = () => {
-    // Clear cache so location is re-fetched
     try { sessionStorage.removeItem(LOCATION_CACHE_KEY); } catch {}
     resolveLocation();
   };
@@ -228,8 +229,7 @@ const RecyclingMap: React.FC = () => {
   const mapCenter: [number, number] = userLocation ?? [20.5937, 78.9629];
 
   return (
-    <div className="space-y-4">
-      {/* Controls */}
+    <div className="space-y-4 relative">
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <Filter size={16} className="text-gray-500 flex-shrink-0" />
@@ -254,7 +254,7 @@ const RecyclingMap: React.FC = () => {
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           {locationSource === 'ip' && (
             <span className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full">
-              📡 Approximate (IP)
+              📡 IP Check
             </span>
           )}
           {locationSource === 'gps' && (
@@ -264,7 +264,7 @@ const RecyclingMap: React.FC = () => {
           )}
           {!isFetching && hasFetchedOnce && (
             <span className={`text-xs px-2 py-1 rounded-full font-medium ${locations.length > 0 ? 'text-green-600 bg-green-50 dark:bg-green-900/20' : 'text-gray-500 bg-gray-100 dark:bg-gray-700'}`}>
-              {locations.length > 0 ? `${locations.length} centers found` : 'No centers in range'}
+              {locations.length > 0 ? `${locations.length} found` : 'No centers'}
             </span>
           )}
           {isFetching && (
@@ -272,22 +272,18 @@ const RecyclingMap: React.FC = () => {
               <Loader2 size={13} className="animate-spin" /> Searching...
             </span>
           )}
-          {/* Refresh button */}
           <button
-            id="refresh-centers-btn"
             onClick={handleRefresh}
             disabled={isLocating || isFetching}
-            title="Refresh location & centers"
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900/30 hover:text-green-700 dark:hover:text-green-400 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 hover:text-green-700 transition-all disabled:opacity-50"
           >
             {isLocating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            <span className="hidden sm:inline">{isLocating ? 'Locating...' : 'Refresh'}</span>
+            <span className="hidden sm:inline">Refresh</span>
           </button>
           <button
-            id="my-location-btn"
             onClick={resolveLocation}
             disabled={isLocating}
-            className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-green-600 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-green-600 transition-colors disabled:opacity-50"
           >
             <Navigation size={15} />
             <span className="hidden sm:inline">My Location</span>
@@ -295,25 +291,15 @@ const RecyclingMap: React.FC = () => {
         </div>
       </div>
 
-      {/* Error */}
       {locationError && (
         <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
           <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-amber-700 dark:text-amber-400 text-sm flex-1">{locationError}</p>
         </div>
       )}
-      {fetchError && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
-          <AlertCircle size={16} className="text-red-500" />
-          <p className="text-red-700 dark:text-red-400 text-sm flex-1">{fetchError}</p>
-          <button onClick={() => userLocation && fetchCenters(userLocation[0], userLocation[1], radius)}>
-            <RefreshCw size={14} className="text-red-500" />
-          </button>
-        </div>
-      )}
 
-      {/* Map */}
-      <div className="w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-lg" style={{ height: '520px' }}>
+      {/* Map Container */}
+      <div className="w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-lg relative" style={{ height: '520px' }}>
         <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -321,23 +307,9 @@ const RecyclingMap: React.FC = () => {
           />
           {userLocation && <MapFlyTo center={userLocation} />}
 
-          {/* Always show user location marker */}
           {userLocation && (
             <>
-              <Marker position={userLocation} icon={userIcon}>
-                <Popup>
-                  <div>
-                    <strong>📍 You are here</strong>
-                    <br />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>
-                      {userLocation[0].toFixed(4)}, {userLocation[1].toFixed(4)}
-                    </span>
-                    {locationSource === 'ip' && (
-                      <><br /><span style={{ fontSize: 11, color: '#d97706' }}>Approximate location (IP-based)</span></>
-                    )}
-                  </div>
-                </Popup>
-              </Marker>
+              <Marker position={userLocation} icon={userIcon} />
               <Circle
                 center={userLocation}
                 radius={radius}
@@ -346,37 +318,93 @@ const RecyclingMap: React.FC = () => {
             </>
           )}
 
-          {/* Center markers */}
           {locations.map(loc => (
-            <Marker key={loc.id} position={[loc.lat, loc.lon]} icon={loc.amenity === 'recycling' ? recyclingIcon : wasteIcon}>
-              <Popup>
-                <div style={{ minWidth: 180 }}>
-                  <p style={{ fontWeight: 700, marginBottom: 4 }}>{loc.name}</p>
-                  {loc.distance !== undefined && <p style={{ fontSize: 12, color: '#6b7280' }}>{loc.distance.toFixed(2)} km away</p>}
-                  {loc.address && <p style={{ fontSize: 12, color: '#6b7280' }}>{loc.address}</p>}
-                  {loc.opening_hours && <p style={{ fontSize: 12, color: '#16a34a' }}>🕐 {loc.opening_hours}</p>}
-                  {loc.phone && <p style={{ fontSize: 12, color: '#2563eb' }}>📞 {loc.phone}</p>}
-                  {loc.materials && loc.materials.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
-                      {loc.materials.slice(0, 5).map(m => (
-                        <span key={m} style={{ fontSize: 10, background: '#dcfce7', color: '#166534', padding: '1px 6px', borderRadius: 99, textTransform: 'capitalize' }}>{m}</span>
-                      ))}
-                    </div>
-                  )}
-                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4, textTransform: 'capitalize' }}>{loc.amenity.replace(/_/g, ' ')}</p>
-                </div>
-              </Popup>
-            </Marker>
+            <Marker 
+              key={loc.id} 
+              position={[loc.lat, loc.lon]} 
+              icon={loc.amenity === 'recycling' ? recyclingIcon : wasteIcon}
+              eventHandlers={{ click: () => setSelectedFacility(loc) }}
+            />
           ))}
         </MapContainer>
+
+        {/* Floating Detail Card Modal */}
+        {selectedFacility && (
+          <div className="absolute inset-0 z-[1000] flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedFacility(null)}>
+            <div 
+              className="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="relative h-48 w-full">
+                <img src={getFacilityImage(selectedFacility.amenity)} alt={selectedFacility.name} className="w-full h-full object-cover" />
+                <button 
+                  onClick={() => setSelectedFacility(null)}
+                  className="absolute top-3 right-3 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors backdrop-blur-md"
+                >
+                  <X size={20} />
+                </button>
+                <div className="absolute top-3 left-3 px-3 py-1 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md rounded-full text-xs font-bold text-green-700 dark:text-green-400 capitalize flex items-center gap-1 shadow-sm">
+                  {selectedFacility.amenity === 'recycling' ? '♻️ Recycling Center' : '🗑️ Waste Disposal'}
+                </div>
+              </div>
+
+              <div className="p-5">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1 leading-tight">{selectedFacility.name}</h3>
+                {selectedFacility.distance !== undefined && (
+                  <p className="text-sm font-semibold text-green-600 dark:text-green-400 mb-4">{selectedFacility.distance.toFixed(1)} km away from you</p>
+                )}
+
+                <div className="space-y-3 mb-5">
+                  {selectedFacility.address && (
+                    <div className="flex items-start gap-2.5 text-sm text-gray-600 dark:text-gray-300">
+                      <MapIcon size={16} className="text-gray-400 mt-0.5" />
+                      <span>{selectedFacility.address}</span>
+                    </div>
+                  )}
+                  {selectedFacility.opening_hours && (
+                    <div className="flex items-center gap-2.5 text-sm text-gray-600 dark:text-gray-300">
+                      <Clock size={16} className="text-gray-400" />
+                      <span>{selectedFacility.opening_hours}</span>
+                    </div>
+                  )}
+                  {selectedFacility.phone && (
+                    <div className="flex items-center gap-2.5 text-sm text-gray-600 dark:text-gray-300">
+                      <Phone size={16} className="text-gray-400" />
+                      <a href={`tel:${selectedFacility.phone}`} className="text-blue-600 dark:text-blue-400 hover:underline">{selectedFacility.phone}</a>
+                    </div>
+                  )}
+                </div>
+
+                {selectedFacility.materials && selectedFacility.materials.length > 0 && (
+                  <div className="mb-5">
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Accepted Materials</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedFacility.materials.map(m => (
+                        <span key={m} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg text-xs font-medium capitalize border border-green-100 dark:border-green-800">
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${selectedFacility.lat},${selectedFacility.lon}`)}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
+                >
+                  <ExternalLink size={18} />
+                  Get Directions
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* No centers message — shown after location is found */}
       {hasFetchedOnce && !isFetching && locations.length === 0 && userLocation && (
         <div className="text-center py-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
           <MapPin size={32} className="mx-auto mb-2 text-gray-300" />
           <p className="font-semibold text-gray-600 dark:text-gray-400">No recycling centers found within {radius / 1000} km of your location</p>
-          <p className="text-xs text-gray-400 mt-1">Try increasing the radius or check in a nearby city area.</p>
           <button
             onClick={() => setRadius(r => r === 10000 ? 10000 : r === 5000 ? 10000 : 5000)}
             className="mt-3 text-sm text-green-600 font-medium hover:underline"
@@ -386,18 +414,20 @@ const RecyclingMap: React.FC = () => {
         </div>
       )}
 
-      {/* Center list */}
       {locations.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Nearby Facilities ({locations.length})</h3>
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {locations.map(loc => (
-              <div key={loc.id} className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-green-300 dark:hover:border-green-700 transition-colors">
-                <div className="text-xl flex-shrink-0 mt-0.5">{loc.amenity === 'recycling' ? '♻️' : '🗑️'}</div>
+              <div 
+                key={loc.id} 
+                className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-green-400 transition-colors cursor-pointer group"
+                onClick={() => setSelectedFacility(loc)}
+              >
+                <div className="text-xl flex-shrink-0 mt-0.5 group-hover:scale-110 transition-transform">{loc.amenity === 'recycling' ? '♻️' : '🗑️'}</div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-800 dark:text-white text-sm truncate">{loc.name}</p>
                   {loc.address && <p className="text-xs text-gray-500 truncate">{loc.address}</p>}
-                  {loc.opening_hours && <p className="text-xs text-green-600">{loc.opening_hours}</p>}
                 </div>
                 {loc.distance !== undefined && (
                   <span className="text-xs font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full flex-shrink-0">

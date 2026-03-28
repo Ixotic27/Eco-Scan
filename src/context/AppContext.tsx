@@ -6,7 +6,8 @@ import {
   updateUserInFirestore,
   getUserScans,
   saveScannedItem,
-  markItemRecycled,
+  verifyRecycledItem,
+  verifyDIYItem,
   subscribeToLeaderboard,
   getRewardProducts,
   redeemReward,
@@ -26,7 +27,8 @@ interface AppContextType {
   signOut: () => Promise<void>;
   addPoints: (points: number) => Promise<void>;
   addScannedItem: (item: ScannedItem) => Promise<void>;
-  markAsRecycled: (scanId: string) => Promise<void>;
+  verifyRecycling: (scanId: string, quantity: number, quantityUnit: 'items' | 'kg' | 'lbs', co2Saved: number, pointsEarned: number) => Promise<void>;
+  verifyDIY: (scanId: string) => Promise<void>;
   redeemProduct: (productId: string) => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<void>;
   toggleTheme: () => void;
@@ -57,10 +59,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           fbUser.photoURL ?? ''
         );
         setUser(appUser);
-        // Load user's scan history
         const scans = await getUserScans(fbUser.uid);
         setScannedItems(scans);
-        // Seed Firestore data on first load
         await seedFirestoreIfEmpty();
       } else {
         setUser(null);
@@ -71,20 +71,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
-  // Load rewards from Firestore
   useEffect(() => {
     if (!user) return;
     getRewardProducts().then(setRewardProducts);
   }, [user]);
 
-  // Real-time leaderboard subscription
   useEffect(() => {
     if (!user) return;
     const unsubscribe = subscribeToLeaderboard(setLeaderboard);
     return unsubscribe;
   }, [user]);
 
-  // Apply theme
   useEffect(() => {
     localStorage.setItem('ecoscan-theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -108,25 +105,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addScannedItem = useCallback(async (item: ScannedItem) => {
     if (!user || !firebaseUser) return;
     const newScannedCount = user.scannedItems + 1;
-    const newPoints = user.points + item.result.points;
-    setScannedItems(prev => [item, ...prev]);
-    setUser(prev => prev ? { ...prev, scannedItems: newScannedCount, points: newPoints } : prev);
-    // Save to Firestore and get the real ID back
-    const firestoreId = await saveScannedItem(firebaseUser.uid, item);
-    // Update the item's id to match Firestore doc id
+    
+    // DELIBERATELY NOT ADDING POINTS ON SCAN (Proof-of-Work update)
+    const assignedStatus = item.status || 'pending';
+    
+    setScannedItems(prev => [{...item, status: assignedStatus}, ...prev]);
+    setUser(prev => prev ? { ...prev, scannedItems: newScannedCount } : prev);
+    
+    const firestoreId = await saveScannedItem(firebaseUser.uid, {...item, status: assignedStatus});
     setScannedItems(prev => prev.map(s => s.id === item.id ? { ...s, id: firestoreId } : s));
-    await updateUserInFirestore(firebaseUser.uid, { scannedItems: newScannedCount, points: newPoints });
+    await updateUserInFirestore(firebaseUser.uid, { scannedItems: newScannedCount });
   }, [user, firebaseUser]);
 
-  const markAsRecycled = useCallback(async (scanId: string) => {
+  const verifyRecycling = useCallback(async (scanId: string, quantity: number, quantityUnit: 'items' | 'kg' | 'lbs', co2Saved: number, pointsEarned: number) => {
     if (!user || !firebaseUser) return;
-    const bonusPoints = 5;
+    
+    // Check Daily Limit (Max 5 per day to prevent spam bots)
+    const today = new Date().toISOString().split('T')[0];
+    let newDailyCount = (user.dailyVerifications || 0) + 1;
+    if (user.lastVerificationDate !== today) newDailyCount = 1;
+    if (newDailyCount > 5) {
+      throw new Error("Daily limit reached! You can only verify 5 items per day.");
+    }
+
     const newRecycledCount = user.recycledItems + 1;
-    const newPoints = user.points + bonusPoints;
-    setScannedItems(prev => prev.map(item => item.id === scanId ? { ...item, recycled: true } : item));
-    setUser(prev => prev ? { ...prev, recycledItems: newRecycledCount, points: newPoints } : prev);
-    await markItemRecycled(firebaseUser.uid, scanId);
-    await updateUserInFirestore(firebaseUser.uid, { recycledItems: newRecycledCount, points: newPoints });
+    const newPoints = user.points + pointsEarned;
+    const newCo2 = (user.co2Saved || 0) + co2Saved;
+
+    // Local State
+    setScannedItems(prev => prev.map(item => item.id === scanId ? { 
+      ...item, 
+      status: 'verified_recycled', 
+      recycled: true, 
+      quantity, 
+      quantityUnit, 
+      co2Saved 
+    } : item));
+    
+    setUser(prev => prev ? { 
+      ...prev, 
+      recycledItems: newRecycledCount, 
+      points: newPoints, 
+      co2Saved: newCo2,
+      dailyVerifications: newDailyCount,
+      lastVerificationDate: today
+    } : prev);
+
+    // Database
+    await verifyRecycledItem(firebaseUser.uid, scanId, quantity, quantityUnit, co2Saved);
+    await updateUserInFirestore(firebaseUser.uid, { 
+      recycledItems: newRecycledCount, 
+      points: newPoints,
+      co2Saved: newCo2,
+      dailyVerifications: newDailyCount,
+      lastVerificationDate: today
+    });
+  }, [user, firebaseUser]);
+
+  const verifyDIY = useCallback(async (scanId: string) => {
+    if (!user || !firebaseUser) return;
+
+    // Check Daily Limit
+    const today = new Date().toISOString().split('T')[0];
+    let newDailyCount = (user.dailyVerifications || 0) + 1;
+    if (user.lastVerificationDate !== today) newDailyCount = 1;
+    if (newDailyCount > 5) {
+      throw new Error("Daily limit reached! You can only verify 5 items per day.");
+    }
+
+    // Move to pending community state. Points are awarded once it reaches 3 upvotes.
+    setScannedItems(prev => prev.map(item => item.id === scanId ? { ...item, status: 'pending_community' } : item));
+    
+    setUser(prev => prev ? { 
+      ...prev, 
+      dailyVerifications: newDailyCount,
+      lastVerificationDate: today
+    } : prev);
+
+    await verifyDIYItem(firebaseUser.uid, scanId); // Will update to state in DB
+    await updateUserInFirestore(firebaseUser.uid, { 
+      dailyVerifications: newDailyCount,
+      lastVerificationDate: today
+    });
   }, [user, firebaseUser]);
 
   const redeemProduct = useCallback(async (productId: string) => {
@@ -159,7 +219,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signOut,
       addPoints,
       addScannedItem,
-      markAsRecycled,
+      verifyRecycling,
+      verifyDIY,
       redeemProduct,
       updateUser,
       toggleTheme,

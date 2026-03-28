@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { User, Award, Camera, MapPin, BarChart, Moon, Sun, Edit2, X, Check } from 'lucide-react';
+import { User, Award, Camera, MapPin, BarChart, Moon, Sun, Edit2, X, Check, CheckCircle, Clock } from 'lucide-react';
+import { ScannedItem } from '../../types';
+import { VerificationModal } from './VerificationModal';
 
 const ProfileView: React.FC = () => {
   const { user, scannedItems, theme, toggleTheme, updateUser } = useAppContext();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: user.name,
-    email: user.email,
+    name: user?.name || '',
+    email: user?.email || '',
   });
+  const [selectedVerify, setSelectedVerify] = useState<ScannedItem | null>(null);
   
-  const recentItems = scannedItems.slice(0, 3);
+  const recentItems = scannedItems.slice(0, 10);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,6 +21,8 @@ const ProfileView: React.FC = () => {
     setIsEditing(false);
   };
   
+  if (!user) return null;
+
   return (
     <div className="space-y-6">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
@@ -140,7 +145,7 @@ const ProfileView: React.FC = () => {
           <div className="border dark:border-gray-700 rounded-lg p-4">
             <h4 className="text-sm text-gray-600 dark:text-gray-400 mb-1">CO₂ Reduced</h4>
             <p className="text-xl font-bold text-green-600 dark:text-green-400">
-              {(user.recycledItems * 2.5).toFixed(1)} kg
+              {(user.co2Saved || 0).toFixed(1)} kg
             </p>
           </div>
           
@@ -169,51 +174,80 @@ const ProfileView: React.FC = () => {
       
       {recentItems.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden p-6">
-          <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Recently Scanned Items</h3>
+          <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Your Recent Scans</h3>
           
           <div className="space-y-4">
             {recentItems.map(item => (
-              <div key={item.id} className="flex border dark:border-gray-700 rounded-lg overflow-hidden">
-                <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 flex-shrink-0">
+              <div key={item.id} className="flex border dark:border-gray-700 rounded-lg overflow-hidden p-3 gap-3">
+                <div className="w-20 h-20 bg-gray-200 dark:bg-gray-700 flex-shrink-0 rounded-md overflow-hidden border border-gray-100 dark:border-gray-600">
                   <img 
                     src={item.imageUrl} 
                     alt="Scanned item" 
                     className="w-full h-full object-cover"
                   />
                 </div>
-                <div className="p-3 flex-1">
-                  <div className="flex justify-between">
-                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      item.result.isRecyclable 
-                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                    }`}>
-                      {item.result.isRecyclable ? 'Recyclable' : 'Not Recyclable'}
+                <div className="flex-1 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        item.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300' :
+                        item.status === 'verified_recycled' ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300' :
+                        item.status === 'verified_diy' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300' :
+                        item.status === 'pending_community' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300' :
+                        item.result.isRecyclable ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' : 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
+                      }`}>
+                        {item.status === 'pending' ? 'Pending Action' :
+                         item.status === 'verified_recycled' ? 'Verified Recycled' :
+                         item.status === 'verified_diy' ? 'Verified DIY' :
+                         item.status === 'pending_community' ? 'In Community Feed' :
+                         item.result.isRecyclable ? 'Recyclable' : 'Not Recyclable'}
+                      </div>
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400 flex flex-col items-end gap-1">
+                        <span>{new Date(item.date).toLocaleDateString()}</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">+{item.result.points} pts</span>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(item.date).toLocaleDateString()}
-                    </div>
+                    <p className="text-sm font-bold mt-1 text-gray-900 dark:text-white line-clamp-1">
+                      {item.result.material}
+                    </p>
                   </div>
-                  <p className="text-sm font-medium mt-1 text-gray-900 dark:text-white">
-                    {item.result.material}
-                  </p>
-                  {item.recycled && (
-                    <div className="mt-1 flex items-center text-green-600 dark:text-green-400 text-xs">
-                      <MapPin size={12} className="mr-1" />
-                      <span>Recycled</span>
-                    </div>
-                  )}
+                  
+                  <div>
+                    {item.status === 'pending' && item.result.isRecyclable && (
+                      <button onClick={() => setSelectedVerify(item)} className="mt-2 w-full border border-green-500 text-green-600 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10 font-semibold text-xs py-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors">
+                        Verify to Earn Points
+                      </button>
+                    )}
+                    {(item.status === 'verified_recycled' || item.recycled) && (
+                      <div className="mt-2 text-xs text-green-600 dark:text-green-400 font-bold flex gap-1 items-center">
+                        <CheckCircle size={14} /> Official GPS Verified
+                      </div>
+                    )}
+                    {item.status === 'pending_community' && (
+                      <div className="mt-2 text-xs text-blue-500 font-bold flex gap-1 items-center">
+                        <Clock size={14} /> Waiting for Community
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
           
-          {scannedItems.length > 3 && (
+          {scannedItems.length > 10 && (
             <button className="mt-4 w-full py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
               View All Items ({scannedItems.length})
             </button>
           )}
         </div>
+      )}
+
+      {selectedVerify && (
+        <VerificationModal 
+          item={selectedVerify} 
+          onClose={() => setSelectedVerify(null)} 
+          onSuccess={() => setSelectedVerify(null)} 
+        />
       )}
     </div>
   );

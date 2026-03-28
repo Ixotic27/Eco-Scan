@@ -14,9 +14,11 @@ import {
   serverTimestamp,
   writeBatch,
   Timestamp,
+  arrayUnion,
+  increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { ScannedItem, RecyclingCenter, RewardProduct, LeaderboardEntry, User } from '../types';
+import { ScannedItem, RecyclingCenter, RewardProduct, LeaderboardEntry, User, CommunityDIYPost } from '../types';
 
 // ─── User ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ export async function getOrCreateUser(uid: string, displayName: string, email: s
       points: 0,
       scannedItems: 0,
       recycledItems: 0,
+      co2Saved: 0,
+      dailyVerifications: 0,
     };
     await setDoc(ref, { ...newUser, createdAt: serverTimestamp() });
     return newUser;
@@ -44,12 +48,47 @@ export async function updateUserInFirestore(uid: string, data: Partial<User>): P
   await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
 }
 
-// ─── Scan History ─────────────────────────────────────────────────────────────
+// ─── Anti-Cheat & Deduplication (With 60 Day TTL) ──────────────────────────────
+
+export async function isImageHashDuplicate(hash: string): Promise<boolean> {
+  if (!hash) return false;
+  const ref = doc(db, 'verifiedImages', hash);
+  const snap = await getDoc(ref);
+  return snap.exists();
+}
+
+export async function recordVerifiedImageHash(hash: string, userId: string): Promise<void> {
+  if (!hash) return;
+  const ref = doc(db, 'verifiedImages', hash);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 60); // Auto-delete after 60 days
+  await setDoc(ref, { userId, createdAt: serverTimestamp(), expiresAt });
+}
+
+export async function isTimestampDuplicate(timestampString: string, material: string): Promise<boolean> {
+  if (!timestampString) return false;
+  const lockId = `${material}-${timestampString}`.replace(/[^a-zA-Z0-9]/g, '_');
+  const ref = doc(db, 'verifiedTimestamps', lockId);
+  const snap = await getDoc(ref);
+  return snap.exists();
+}
+
+export async function recordVerifiedTimestamp(timestampString: string, material: string, userId: string): Promise<void> {
+  if (!timestampString) return;
+  const lockId = `${material}-${timestampString}`.replace(/[^a-zA-Z0-9]/g, '_');
+  const ref = doc(db, 'verifiedTimestamps', lockId);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 60); // Auto-delete after 60 days
+  await setDoc(ref, { userId, createdAt: serverTimestamp(), expiresAt });
+}
+
+// ─── Scan History & Verifications ─────────────────────────────────────────────────────────────
 
 export async function saveScannedItem(userId: string, item: ScannedItem): Promise<string> {
   const ref = collection(db, 'users', userId, 'scans');
   const docRef = await addDoc(ref, {
     ...item,
+    status: item.status || 'pending',
     createdAt: serverTimestamp(),
   });
   return docRef.id;
@@ -69,9 +108,74 @@ export async function getUserScans(userId: string): Promise<ScannedItem[]> {
   });
 }
 
-export async function markItemRecycled(userId: string, scanId: string): Promise<void> {
+export async function verifyRecycledItem(
+  userId: string, 
+  scanId: string, 
+  quantity: number, 
+  quantityUnit: string, 
+  co2Saved: number
+): Promise<void> {
   const ref = doc(db, 'users', userId, 'scans', scanId);
-  await updateDoc(ref, { recycled: true, recycledAt: serverTimestamp() });
+  await updateDoc(ref, { 
+    status: 'verified_recycled', 
+    recycled: true, // legacy back-compat
+    quantity,
+    quantityUnit,
+    co2Saved,
+    verifiedAt: serverTimestamp() 
+  });
+}
+
+export async function verifyDIYItem(
+  userId: string, 
+  scanId: string, 
+): Promise<void> {
+  const ref = doc(db, 'users', userId, 'scans', scanId);
+  await updateDoc(ref, { 
+    status: 'verified_diy',
+    verifiedAt: serverTimestamp() 
+  });
+}
+
+// ─── Community DIY Feed ───────────────────────────────────────────────────────
+
+export async function submitDIYProject(post: Omit<CommunityDIYPost, 'id' | 'upvotes' | 'votedUserIds' | 'status'>): Promise<string> {
+  const ref = collection(db, 'communityDIY');
+  const docRef = await addDoc(ref, {
+    ...post,
+    upvotes: 0,
+    votedUserIds: [],
+    status: 'pending_community',
+    createdAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCommunityFeed(): Promise<CommunityDIYPost[]> {
+  const ref = collection(db, 'communityDIY');
+  const q = query(ref, orderBy('createdAt', 'desc'), limit(30));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ ...d.data(), id: d.id } as CommunityDIYPost));
+}
+
+export async function upvoteDIYProject(postId: string, userId: string): Promise<{newUpvotes: number, approved: boolean, originalScanId: string, creatorId: string}> {
+  const ref = doc(db, 'communityDIY', postId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Post not found');
+  
+  const data = snap.data() as CommunityDIYPost;
+  if (data.votedUserIds?.includes(userId)) throw new Error('Already voted');
+
+  const newUpvotes = (data.upvotes || 0) + 1;
+  const approved = newUpvotes >= 3 && data.status === 'pending_community';
+
+  await updateDoc(ref, {
+    upvotes: increment(1),
+    votedUserIds: arrayUnion(userId),
+    ...(approved ? { status: 'approved' } : {})
+  });
+
+  return { newUpvotes, approved, originalScanId: data.originalScanId, creatorId: data.userId };
 }
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────────

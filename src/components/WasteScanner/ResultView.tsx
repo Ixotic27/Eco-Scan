@@ -93,11 +93,11 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
           <p className="text-lg font-bold text-gray-800 dark:text-white">{confidencePercent}%</p>
         </div>
         <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center border border-green-100 dark:border-green-800">
-          <p className="text-xs text-gray-500 mb-1">Points</p>
+          <p className="text-xs text-green-600 dark:text-green-400 mb-1 leading-tight">Potential Points</p>
           <p className="text-lg font-bold text-green-700 dark:text-green-400">+{result.points}</p>
         </div>
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center border border-blue-100 dark:border-blue-800">
-          <p className="text-xs text-gray-500 mb-1">CO₂ Impact</p>
+          <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-1 leading-tight">Potential CO₂ Savings</p>
           <p className="text-sm font-bold text-blue-700 dark:text-blue-400 leading-tight">{result.carbonFootprint}</p>
         </div>
       </div>
@@ -156,15 +156,27 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
         </div>
       )}
 
-      {/* CTA */}
+      {/* Verify CTA */}
+      <div className="bg-gradient-to-br from-green-500/10 to-teal-500/10 border border-green-500/20 rounded-xl p-4 text-center space-y-3">
+        <h4 className="font-bold text-green-800 dark:text-green-300">Action Required: Verify to Earn</h4>
+        <p className="text-xs text-green-700 dark:text-green-400">You must physically verify this item by uploading a picture of it at a recycling center or as a DIY project to earn your points.</p>
+        <Link
+          to="/profile"
+          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all shadow-md hover:shadow-lg hover:shadow-green-500/20"
+        >
+          <CheckCircle size={18} />
+          Go to Profile to Verify
+          <ArrowRight size={18} />
+        </Link>
+      </div>
+
       {isRecyclable && (
         <Link
           to="/map"
-          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-green-500/20"
+          className="w-full border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium hover:bg-green-50 dark:hover:bg-green-900/40 transition-colors"
         >
           <MapPin size={18} />
           Find Recycling Centers Nearby
-          <ArrowRight size={18} />
         </Link>
       )}
 

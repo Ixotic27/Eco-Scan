@@ -6,6 +6,9 @@ export interface User {
   points: number;
   scannedItems: number;
   recycledItems: number;
+  co2Saved?: number; // Total kg of CO2 saved
+  dailyVerifications?: number; // Count of today's verifications (max 5)
+  lastVerificationDate?: string; // e.g. "2026-03-29" to track daily limit resets
 }
 
 export interface RecyclingCenter {
@@ -57,5 +60,39 @@ export interface ScannedItem {
   imageUrl: string;
   result: ScanResult;
   date: string;
-  recycled: boolean;
+  recycled: boolean; // Legacy flag, kept for backward compatibility
+  status?: 'pending' | 'verified_recycled' | 'verified_diy' | 'pending_community';
+  quantity?: number;
+  quantityUnit?: 'items' | 'kg' | 'lbs';
+  co2Saved?: number; // Calculated CO2 saved in kg for this specific verification
+}
+
+export interface CommunityDIYPost {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  originalScanId: string;
+  originalMaterial: string;
+  diyImages: string[];
+  materialsUsed: string;
+  date: string;
+  upvotes: number;
+  votedUserIds: string[];
+  status: 'pending_community' | 'approved';
+}
+
+export interface RecycleVerificationResult {
+  valid: boolean;
+  confidence: number;
+  extractedTimestamp?: string;
+  carbonSavedKg: number;
+  reason: string;
+}
+
+export interface DIYVerificationResult {
+  valid: boolean;
+  confidence: number;
+  isAIGenerated: boolean;
+  reason: string;
 }

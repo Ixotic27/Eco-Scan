@@ -40,7 +40,7 @@ function extractJSON(text: string): string {
 
 export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash',
     generationConfig: { 
       temperature: 0.1, 
       maxOutputTokens: 512,
@@ -80,7 +80,7 @@ export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
         points: typeof parsed.points === 'number' ? parsed.points : 5,
         carbonFootprint: parsed.carbonFootprint ?? 'Unknown',
         disposalMethod: parsed.disposalMethod ?? 'General Trash',
-        geminiModel: 'gemini-1.5-flash',
+        geminiModel: 'gemini-2.5-flash',
       };
     } catch (err) {
       console.error('Gemini attempt failed:', err);

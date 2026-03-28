@@ -5,21 +5,20 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
 const PROMPT = `You are a waste classification expert. Look at this image and identify what waste item is shown.
 
-Respond with ONLY a JSON object (no markdown, no explanation, no code fences). Use this exact structure:
-
+Respond with ONLY a JSON object. Use this exact structure:
 {"category":"plastic","material":"PET Plastic Bottle","isRecyclable":true,"confidence":0.92,"tips":"Rinse and remove cap. Place in the recycling bin.","points":10,"carbonFootprint":"~0.5kg CO2 saved","disposalMethod":"Recycle Bin"}
 
 Rules:
 - category must be one of: plastic, paper, glass, metal, organic, electronic, textile, hazardous, other
-- material: be specific about what the item is (e.g. "Cardboard Box" not just "cardboard")
-- isRecyclable: true if it can go in a recycling bin or recycling centre
+- material: be specific about what the item is
+- isRecyclable: true if it can go in a recycling bin
 - confidence: 0.0 to 1.0
-- tips: 1-2 practical sentences on how to dispose of or recycle this item
-- points: 5 to 25 (5=common easy items, 25=special handling needed)
-- carbonFootprint: rough CO2 impact if disposed properly vs landfill
-- disposalMethod: one of: Recycle Bin, Compost, E-Waste Centre, Hazardous Waste, General Trash
+- tips: 1-2 practical sentences
+- points: 5 to 25
+- carbonFootprint: rough CO2 impact
+- disposalMethod: Recycle Bin, Compost, E-Waste Centre, Hazardous Waste, or General Trash
 
-If the image is unclear or not a waste item, still respond with your best guess using "other" category and low confidence.`;
+If unclear, use "other" category and low confidence.`;
 
 function extractBase64(dataUrl: string): string {
   const idx = dataUrl.indexOf(',');
@@ -32,7 +31,6 @@ function extractMimeType(dataUrl: string): string {
 }
 
 function extractJSON(text: string): string {
-  // Try to extract JSON even if there's surrounding text or markdown
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenceMatch) return fenceMatch[1].trim();
   const braceMatch = text.match(/\{[\s\S]*\}/);
@@ -43,7 +41,11 @@ function extractJSON(text: string): string {
 export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
   const model = genAI.getGenerativeModel({
     model: 'gemini-1.5-flash',
-    generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
+    generationConfig: { 
+      temperature: 0.1, 
+      maxOutputTokens: 512,
+      responseMimeType: "application/json" // Guarantees pure JSON output
+    },
   });
 
   const imagePart = {
@@ -53,6 +55,10 @@ export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
     },
   };
 
+  if (!imagePart.inlineData.data) {
+    throw new Error("No image data provided to Gemini.");
+  }
+
   let lastError: any;
 
   // Retry up to 2 times on parse failure
@@ -60,6 +66,8 @@ export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
     try {
       const result = await model.generateContent([PROMPT, imagePart]);
       const raw = result.response.text();
+      console.log('Gemini raw response:', raw);
+      
       const jsonStr = extractJSON(raw);
       const parsed = JSON.parse(jsonStr);
 
@@ -75,11 +83,11 @@ export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
         geminiModel: 'gemini-1.5-flash',
       };
     } catch (err) {
+      console.error('Gemini attempt failed:', err);
       lastError = err;
-      // Small delay before retry
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 800));
     }
   }
 
-  throw new Error(`Gemini classification failed: ${lastError?.message ?? 'Unknown error'}`);
+  throw new Error(lastError?.message || "Unknown AI Error");
 }

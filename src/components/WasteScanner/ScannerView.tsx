@@ -60,13 +60,26 @@ const ScannerView: React.FC = () => {
 
   const capturePhoto = () => {
     if (videoRef.current) {
+      const vw = videoRef.current.videoWidth;
+      const vh = videoRef.current.videoHeight;
+      if (!vw || !vh) return;
+
+      // Downscale to 800px max to prevent massive base64 payloads
+      // (Modern phones capture 4K video, which crashes Gemini/Vercel)
+      const maxDim = 800;
+      let w = vw, h = vh;
+      if (w > maxDim || h > maxDim) {
+         if (w > h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+         else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        ctx.drawImage(videoRef.current, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7); // 70% quality is enough for AI
         stopCamera();
         setImage(dataUrl);
         analyzeImage(dataUrl);

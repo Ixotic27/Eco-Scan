@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle, Lightbulb } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle, Lightbulb, Youtube } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ScanResult } from '../../types';
 
@@ -22,6 +22,30 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
+  const [ytVideoId, setYtVideoId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Attempt to fetch a top YouTube video for the DIY idea if the user has youtube API enabled
+    if (result && result.diyIdea) {
+      const fetchYT = async () => {
+        try {
+          const query = encodeURIComponent(`DIY upcycle repurpose ${result.material}`);
+          const key = import.meta.env.VITE_GEMINI_API_KEY;
+          const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=${query}&type=video&key=${key}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+              setYtVideoId(data.items[0].id.videoId);
+            }
+          }
+        } catch (e) {
+          console.error("YT fetch failed, falling back to link", e);
+        }
+      };
+      fetchYT();
+    }
+  }, [result]);
+
   if (!result) return null;
 
   const isRecyclable = result.isRecyclable;
@@ -100,12 +124,35 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
 
       {/* DIY / Upcycling Idea */}
       {result.diyIdea && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
-          <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-1 text-sm flex items-center gap-1.5">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 overflow-hidden">
+          <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2 text-sm flex items-center gap-1.5">
             <Lightbulb size={16} />
             Creative Upcycling Idea
           </h4>
-          <p className="text-amber-700 dark:text-amber-400 text-sm leading-relaxed">{result.diyIdea}</p>
+          <p className="text-amber-700 dark:text-amber-400 text-sm leading-relaxed mb-4">{result.diyIdea}</p>
+          
+          {ytVideoId ? (
+            <div className="w-full rounded-xl overflow-hidden shadow-inner bg-black aspect-video relative">
+              <iframe
+                width="100%"
+                height="100%"
+                src={`https://www.youtube.com/embed/${ytVideoId}`}
+                title="DIY Tutorial"
+                className="absolute inset-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
+          ) : (
+            <a 
+              href={`https://www.youtube.com/results?search_query=DIY+upcycle+repurpose+${encodeURIComponent(result.material)}`}
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#ff0000]/10 text-[#ff0000] dark:text-[#ff4d4d] font-semibold text-xs rounded-xl hover:bg-[#ff0000]/20 transition-colors w-full justify-center"
+            >
+              <Youtube size={16} /> Watch Tutorials on YouTube
+            </a>
+          )}
         </div>
       )}
 

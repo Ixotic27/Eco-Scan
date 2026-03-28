@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle } from 'lucide-react';
+import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle, Lightbulb } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ScanResult } from '../../types';
 
@@ -95,6 +95,17 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl p-4">
           <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-1 text-sm">💡 AI Disposal Tips</h4>
           <p className="text-blue-700 dark:text-blue-400 text-sm leading-relaxed">{result.tips}</p>
+        </div>
+      )}
+
+      {/* DIY / Upcycling Idea */}
+      {result.diyIdea && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-1 text-sm flex items-center gap-1.5">
+            <Lightbulb size={16} />
+            Creative Upcycling Idea
+          </h4>
+          <p className="text-amber-700 dark:text-amber-400 text-sm leading-relaxed">{result.diyIdea}</p>
         </div>
       )}
 

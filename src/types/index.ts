@@ -31,6 +31,7 @@ export interface ScanResult {
   carbonFootprint: string;
   disposalMethod: string;
   geminiModel?: string;
+  diyIdea?: string;
 }
 
 export interface RewardProduct {

@@ -6,7 +6,7 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 const PROMPT = `You are a waste classification expert. Look at this image and identify what waste item is shown.
 
 Respond with ONLY a JSON object. Use this exact structure:
-{"category":"plastic","material":"PET Plastic Bottle","isRecyclable":true,"confidence":0.92,"tips":"Rinse and remove cap. Place in the recycling bin.","points":10,"carbonFootprint":"~0.5kg CO2 saved","disposalMethod":"Recycle Bin"}
+{"category":"plastic","material":"PET Plastic Bottle","isRecyclable":true,"confidence":0.92,"tips":"Rinse and remove cap. Place in the recycling bin.","points":10,"carbonFootprint":"~0.5kg CO2 saved","disposalMethod":"Recycle Bin","diyIdea":"Cut the bottom off to use as a mini greenhouse for seedlings."}
 
 Rules:
 - category must be one of: plastic, paper, glass, metal, organic, electronic, textile, hazardous, other
@@ -17,6 +17,7 @@ Rules:
 - points: 5 to 25
 - carbonFootprint: rough CO2 impact
 - disposalMethod: Recycle Bin, Compost, E-Waste Centre, Hazardous Waste, or General Trash
+- diyIdea: If the item can easily be reused, upcycled, or used for a DIY project, provide a 1-sentence creative idea. Otherwise, omit this field or leave it empty.
 
 If unclear, use "other" category and low confidence.`;
 
@@ -81,6 +82,7 @@ export async function classifyWaste(imageDataUrl: string): Promise<ScanResult> {
         carbonFootprint: parsed.carbonFootprint ?? 'Unknown',
         disposalMethod: parsed.disposalMethod ?? 'General Trash',
         geminiModel: 'gemini-2.5-flash',
+        diyIdea: typeof parsed.diyIdea === 'string' && parsed.diyIdea.trim() !== '' ? parsed.diyIdea : undefined,
       };
     } catch (err) {
       console.error('Gemini attempt failed:', err);

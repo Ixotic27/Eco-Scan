@@ -10,22 +10,40 @@ const ScannerView: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Two separate inputs: one for camera (capture), one for file upload
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
   const { addScannedItem } = useAppContext();
+
+  const processFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file.');
+      return;
+    }
+    setError(null);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      setImage(dataUrl);
+      analyzeImage(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setError(null);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        setImage(dataUrl);
-        analyzeImage(dataUrl);
-      };
-      reader.readAsDataURL(file);
-    }
+    if (file) processFile(file);
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
   };
 
   const analyzeImage = async (imageDataUrl: string) => {
@@ -34,7 +52,6 @@ const ScannerView: React.FC = () => {
     try {
       const result = await classifyWaste(imageDataUrl);
       setScanResult(result);
-
       const newItem: ScannedItem = {
         id: Date.now().toString(),
         imageUrl: imageDataUrl,
@@ -44,12 +61,14 @@ const ScannerView: React.FC = () => {
       };
       await addScannedItem(newItem);
     } catch (err: any) {
-      console.error('Gemini classification error:', err);
-      setError(
-        err?.message?.includes('API_KEY') 
-          ? 'Invalid Gemini API key. Please check your .env file.'
-          : 'AI analysis failed. Please try a clearer photo.'
-      );
+      console.error('Scan error:', err);
+      if (err?.message?.includes('API_KEY') || err?.message?.includes('API key')) {
+        setError('Invalid Gemini API key. Please check your configuration.');
+      } else if (err?.message?.includes('SAFETY')) {
+        setError('Image was flagged by safety filters. Please try a different image.');
+      } else {
+        setError('AI analysis failed. Please try a clearer, well-lit photo of the waste item.');
+      }
       setImage(null);
     } finally {
       setIsScanning(false);
@@ -60,99 +79,142 @@ const ScannerView: React.FC = () => {
     setImage(null);
     setScanResult(null);
     setError(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
+
+  if (image) {
+    return (
+      <div className="max-w-lg mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
+        {isScanning ? (
+          <div className="p-6">
+            <img src={image} alt="Waste item" className="w-full h-60 object-contain rounded-xl bg-gray-50 dark:bg-gray-900 mb-6" />
+            <div className="flex flex-col items-center py-4">
+              <div className="relative mb-4">
+                <div className="w-16 h-16 border-4 border-green-200 dark:border-green-900 border-t-green-600 rounded-full animate-spin" />
+                <Sparkles size={20} className="absolute inset-0 m-auto text-green-600 dark:text-green-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-1">Gemini AI is analyzing...</h3>
+              <p className="text-sm text-gray-500 text-center max-w-xs">
+                Identifying material type, recyclability, CO₂ impact and disposal tips
+              </p>
+              <div className="mt-4 flex gap-1 flex-wrap justify-center">
+                {['Identifying material...', 'Checking recyclability...', 'Generating tips...'].map((step, i) => (
+                  <span key={i} className="text-xs bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-2 py-1 rounded-full animate-pulse" style={{ animationDelay: `${i * 400}ms` }}>
+                    {step}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <ResultView result={scanResult} image={image} onReset={resetScan} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto">
-      {!image ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white">
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles size={20} />
-              <span className="text-sm font-medium opacity-90">Powered by Gemini AI</span>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={18} />
+            <span className="text-sm font-medium opacity-90">Powered by Gemini 1.5 Flash</span>
+          </div>
+          <h2 className="text-2xl font-bold">Scan Waste Item</h2>
+          <p className="opacity-80 text-sm mt-1">Upload or take a photo for instant AI classification</p>
+        </div>
+
+        <div className="p-6">
+          {/* Drop zone */}
+          <div
+            ref={dropZoneRef}
+            onDrop={handleDrop}
+            onDragOver={e => e.preventDefault()}
+            onClick={() => uploadInputRef.current?.click()}
+            className="bg-gray-50 dark:bg-gray-900 rounded-xl p-10 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-600 hover:border-green-400 dark:hover:border-green-500 transition-colors cursor-pointer group mb-4"
+          >
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <Camera size={28} className="text-green-600 dark:text-green-400" />
             </div>
-            <h2 className="text-2xl font-bold">Scan Waste Item</h2>
-            <p className="opacity-80 text-sm mt-1">Upload a photo to get an instant AI analysis</p>
+            <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">Drop image here or click to upload</p>
+            <p className="text-gray-400 text-xs">Supports JPG, PNG, WEBP, HEIC</p>
           </div>
 
-          <div className="p-6">
-            {/* Drop zone */}
-            <div
-              className="bg-gray-50 dark:bg-gray-900 rounded-xl p-10 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 dark:border-gray-600 hover:border-green-400 dark:hover:border-green-500 transition-colors cursor-pointer group"
-              onClick={() => fileInputRef.current?.click()}
+          {/* Two distinct buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Camera button — opens device camera directly */}
+            <button
+              id="camera-capture-btn"
+              onClick={() => cameraInputRef.current?.click()}
+              className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-green-500/25 hover:-translate-y-0.5"
             >
-              <div className="w-16 h-16 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Camera size={28} className="text-green-600 dark:text-green-400" />
-              </div>
-              <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">Drop image here or click to upload</p>
-              <p className="text-gray-400 text-sm">Supports JPG, PNG, WEBP</p>
-            </div>
+              <Camera size={18} />
+              Take Photo
+            </button>
 
-            {/* Buttons */}
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <button
-                id="camera-btn"
-                onClick={() => cameraInputRef.current?.click()}
-                className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-green-500/20 hover:-translate-y-0.5"
-              >
-                <Camera size={18} />
-                Take Photo
-              </button>
-              <button
-                id="upload-btn"
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-blue-500/20 hover:-translate-y-0.5"
-              >
-                <Upload size={18} />
-                Upload
-              </button>
-            </div>
+            {/* Upload button — opens file picker */}
+            <button
+              id="upload-file-btn"
+              onClick={() => uploadInputRef.current?.click()}
+              className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25 hover:-translate-y-0.5"
+            >
+              <Upload size={18} />
+              Upload File
+            </button>
+          </div>
 
-            <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleFileChange} className="hidden" />
-            <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+          {/* Camera input — capture="environment" opens rear camera on mobile */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileChange}
+            className="hidden"
+          />
 
-            {error && (
-              <div className="mt-4 flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
-                <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+          {/* File upload input — no capture attribute, opens file picker on all devices */}
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
+          {error && (
+            <div className="mt-4 flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+              <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
                 <p className="text-red-700 dark:text-red-400 text-sm">{error}</p>
+                <button onClick={() => setError(null)} className="text-xs text-red-500 underline mt-1">Dismiss</button>
               </div>
-            )}
+            </div>
+          )}
 
-            <p className="text-center text-xs text-gray-400 mt-4">
-              💡 Tip: Clear, well-lit photos give more accurate results
+          <div className="mt-4 space-y-1">
+            <p className="text-center text-xs text-gray-400">
+              💡 <strong>Tips for best results:</strong>
             </p>
+            <ul className="text-xs text-gray-400 space-y-0.5 text-center">
+              <li>• Place item on a plain background</li>
+              <li>• Good lighting — avoid shadows</li>
+              <li>• Fill the frame with the item</li>
+            </ul>
           </div>
         </div>
-      ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-          {isScanning ? (
-            <div className="p-6">
-              <img src={image} alt="Scanned waste" className="w-full h-64 object-contain rounded-xl bg-gray-50 dark:bg-gray-900 mb-6" />
-              <div className="flex flex-col items-center py-6">
-                <div className="relative mb-4">
-                  <div className="w-16 h-16 border-4 border-green-200 dark:border-green-900 border-t-green-600 rounded-full animate-spin" />
-                  <Sparkles size={20} className="absolute inset-0 m-auto text-green-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-1">Gemini is analyzing...</h3>
-                <p className="text-sm text-gray-500 text-center">
-                  AI is identifying the material, recyclability, and disposal instructions
-                </p>
-                <div className="mt-4 flex gap-1">
-                  {['Identifying...', 'Classifying...', 'Generating tips...'].map((step, i) => (
-                    <span key={i} className="text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-400 px-2 py-1 rounded-full animate-pulse" style={{ animationDelay: `${i * 300}ms` }}>
-                      {step}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <ResultView result={scanResult} image={image} onReset={resetScan} />
-          )}
-        </div>
+      </div>
+
+      {/* Reset if there was an error and image is null */}
+      {error && (
+        <button
+          onClick={resetScan}
+          className="mt-3 w-full flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+        >
+          <RefreshCw size={14} />
+          Try again
+        </button>
       )}
     </div>
   );

@@ -1,6 +1,5 @@
 import React from 'react';
 import Navbar from './Navbar';
-import { useLocation } from 'react-router-dom';
 import { useAppContext } from '../../context/AppContext';
 
 interface LayoutProps {
@@ -8,28 +7,14 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const location = useLocation();
-  let contextValue;
-  
-  try {
-    contextValue = useAppContext();
-  } catch (error) {
-    // If context is not available yet, show loading state
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    );
-  }
-  
-  const { theme } = contextValue;
-  const contentClass = "min-h-screen bg-gray-50 dark:bg-gray-900 md:pl-64 pt-16 md:pt-0 pb-16 md:pb-0";
-  
+  const { theme } = useAppContext();
+
   return (
-    <div className={`flex flex-col md:flex-row ${theme}`}>
+    <div className={`${theme} flex min-h-screen w-full bg-gray-50 dark:bg-gray-900`}>
       <Navbar />
-      <main className={contentClass}>
-        <div className="p-4 md:p-8 max-w-6xl mx-auto w-full">
+      {/* Offset for fixed sidebar on desktop, top/bottom bars on mobile */}
+      <main className="flex-1 w-full md:ml-64 pt-16 md:pt-0 pb-20 md:pb-0 min-h-screen">
+        <div className="p-4 md:p-8 w-full">
           {children}
         </div>
       </main>

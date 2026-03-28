@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    // User must be signed in via Firebase Auth
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // User can only access their own documents
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Prevent writing more points than the delta allows (anti-cheat)
+    function pointsDeltaIsValid() {
+      let current = resource.data.points;
+      let incoming = request.resource.data.points;
+      // Allow up to +25 points per write (max scan reward)
+      return incoming <= current + 25 && incoming >= 0;
+    }
+
+    // ─── Users ────────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      // Anyone signed in can read user profiles (needed for leaderboard)
+      allow read: if isAuthenticated();
+
+      // Only the user themselves can create their profile
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasAll(['id', 'name', 'email', 'points', 'scannedItems', 'recycledItems'])
+        && request.resource.data.points == 0
+        && request.resource.data.scannedItems == 0
+        && request.resource.data.recycledItems == 0;
+
+      // Only the user can update their own profile, with point anti-cheat
+      allow update: if isOwner(userId)
+        && pointsDeltaIsValid()
+        // Prevent changing user ID
+        && request.resource.data.id == resource.data.id;
+
+      // Never allow deletion via client SDK
+      allow delete: if false;
+
+      // ─── Scan History (subcollection) ─────────────────────────────────────
+      match /scans/{scanId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['result', 'date', 'recycled'])
+          && request.resource.data.recycled == false;
+
+        // Only allow marking as recycled (no other field changes)
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['recycled', 'recycledAt'])
+          && request.resource.data.recycled == true;
+
+        allow delete: if false;
+      }
+
+      // ─── Redemptions (subcollection) ──────────────────────────────────────
+      match /redemptions/{redemptionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['productId', 'pointsCost', 'redeemedAt']);
+        allow update, delete: if false;
+      }
+    }
+
+    // ─── Recycling Centers ───────────────────────────────────────────────────
+    // Read-only for authenticated users. Only writable via Firebase Admin SDK (seeding).
+    match /recyclingCenters/{centerId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ─── Rewards ─────────────────────────────────────────────────────────────
+    // Read-only for authenticated users.
+    match /rewards/{rewardId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ─── Deny everything else ─────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

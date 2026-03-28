@@ -93,11 +93,31 @@ const ScannerView: React.FC = () => {
       return;
     }
     setError(null);
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 800;
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+        else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, w, h);
+        // Export as JPEG at 70% quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        setImage(dataUrl);
+        analyzeImage(dataUrl);
+      }
+    };
+    // Load the image source from file
     const reader = new FileReader();
     reader.onloadend = () => {
-      const dataUrl = reader.result as string;
-      setImage(dataUrl);
-      analyzeImage(dataUrl);
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -130,12 +150,13 @@ const ScannerView: React.FC = () => {
       await addScannedItem(newItem);
     } catch (err: any) {
       console.error('Scan error:', err);
-      if (err?.message?.includes('API_KEY') || err?.message?.includes('API key')) {
+      if (err instanceof Error && (err.message.includes('API_KEY') || err.message.includes('API key'))) {
         setError('Invalid Gemini API key. Please check your configuration.');
-      } else if (err?.message?.includes('SAFETY')) {
+      } else if (err instanceof Error && err.message.includes('SAFETY')) {
         setError('Image was flagged by safety filters. Please try a different image.');
       } else {
-        setError('AI analysis failed. Please try a clearer, well-lit photo of the waste item.');
+        const errMsg = err instanceof Error ? err.message : String(err);
+        setError(`AI analysis failed: ${errMsg}`);
       }
       setImage(null);
     } finally {

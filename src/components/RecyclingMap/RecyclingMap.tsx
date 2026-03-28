@@ -164,6 +164,11 @@ const RecyclingMap: React.FC = () => {
   const getUserLocation = useCallback(() => {
     setIsLocating(true);
     setLocationError(null);
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser.');
+      setIsLocating(false);
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
@@ -173,11 +178,7 @@ const RecyclingMap: React.FC = () => {
       },
       (err) => {
         setIsLocating(false);
-        setLocationError(
-          err.code === 1
-            ? 'Location access denied. Please enable location in your browser settings.'
-            : 'Could not get your location. Please try again.'
-        );
+        setLocationError('Could not get your location. Please try again.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -269,7 +270,7 @@ const RecyclingMap: React.FC = () => {
       )}
 
       {/* Map */}
-      <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-lg" style={{ height: '420px' }}>
+      <div className="w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 shadow-lg" style={{ height: '420px' }}>
         <MapContainer center={mapCenter} zoom={12} style={{ height: '100%', width: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

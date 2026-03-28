@@ -130,7 +130,7 @@ const getFacilityImage = (amenity: string) => {
 const RecyclingMap: React.FC = () => {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [locationSource, setLocationSource] = useState<'gps' | 'ip' | null>(null);
-  const [locations, setLocations] = useState<RecyclingLocation[]>([]);
+  const [allLocations, setAllLocations] = useState<RecyclingLocation[]>([]);
   const [radius, setRadius] = useState(5000);
   const [isLocating, setIsLocating] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
@@ -139,13 +139,18 @@ const RecyclingMap: React.FC = () => {
   const [hasFetchedOnce, setHasFetchedOnce] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState<RecyclingLocation | null>(null);
 
-  const fetchCenters = useCallback(async (lat: number, lon: number, rad: number) => {
+  // Derived state: instantly filter locations based on selected radius
+  const locations = allLocations.filter(loc => loc.distance !== undefined && loc.distance <= radius / 1000);
+
+  const fetchCenters = useCallback(async (lat: number, lon: number) => {
     setIsFetching(true);
     setFetchError(null);
     try {
+      // Always fetch a massive 15km maximum radius from Overpass ONCE
+      const MAX_RADIUS = 15000;
       const resp = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        body: `data=${encodeURIComponent(buildOverpassQuery(lat, lon, rad))}`,
+        body: `data=${encodeURIComponent(buildOverpassQuery(lat, lon, MAX_RADIUS))}`,
       });
       if (!resp.ok) throw new Error('Overpass error');
       const data = await resp.json();
@@ -153,7 +158,7 @@ const RecyclingMap: React.FC = () => {
         .map((el: any) => parseElement(el, lat, lon))
         .filter(Boolean)
         .sort((a: RecyclingLocation, b: RecyclingLocation) => (a.distance ?? 99) - (b.distance ?? 99));
-      setLocations(parsed);
+      setAllLocations(parsed);
       setHasFetchedOnce(true);
     } catch {
       setFetchError('Could not load recycling centers. Check your connection.');
@@ -171,7 +176,7 @@ const RecyclingMap: React.FC = () => {
       setUserLocation(cached);
       setLocationSource('gps');
       setIsLocating(false);
-      fetchCenters(cached[0], cached[1], radius);
+      fetchCenters(cached[0], cached[1]);
       return;
     }
 
@@ -183,7 +188,7 @@ const RecyclingMap: React.FC = () => {
           setUserLocation(coords);
           setLocationSource('gps');
           setIsLocating(false);
-          fetchCenters(coords[0], coords[1], radius);
+          fetchCenters(coords[0], coords[1]);
         },
         async () => {
           try {
@@ -191,7 +196,7 @@ const RecyclingMap: React.FC = () => {
             cacheLocation(coords[0], coords[1]);
             setUserLocation(coords);
             setLocationSource('ip');
-            fetchCenters(coords[0], coords[1], radius);
+            fetchCenters(coords[0], coords[1]);
           } catch {
             setLocationError('Unable to determine your location. Please try again.');
           } finally {
@@ -206,20 +211,16 @@ const RecyclingMap: React.FC = () => {
         cacheLocation(coords[0], coords[1]);
         setUserLocation(coords);
         setLocationSource('ip');
-        fetchCenters(coords[0], coords[1], radius);
+        fetchCenters(coords[0], coords[1]);
       } catch {
         setLocationError('Geolocation is not supported by your browser.');
       } finally {
         setIsLocating(false);
       }
     }
-  }, [radius, fetchCenters]);
+  }, [fetchCenters]);
 
   useEffect(() => { resolveLocation(); }, []); // eslint-disable-line
-
-  useEffect(() => {
-    if (userLocation) fetchCenters(userLocation[0], userLocation[1], radius);
-  }, [radius]); // eslint-disable-line
 
   const handleRefresh = () => {
     try { sessionStorage.removeItem(LOCATION_CACHE_KEY); } catch {}

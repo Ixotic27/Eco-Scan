@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Camera, Map, Gift, Trophy, User, Menu, X, Moon, Sun, Leaf } from 'lucide-react';
+import { Camera, Map, Gift, Trophy, User, Users, Menu, X, Moon, Sun, Leaf } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
 const Navbar: React.FC = () => {
@@ -15,6 +15,7 @@ const Navbar: React.FC = () => {
     { path: '/map', icon: <Map size={20} />, label: 'Find Centers' },
     { path: '/rewards', icon: <Gift size={20} />, label: 'Rewards' },
     { path: '/leaderboard', icon: <Trophy size={20} />, label: 'Leaderboard' },
+    { path: '/community', icon: <Users size={20} />, label: 'Community' },
     { path: '/profile', icon: <User size={20} />, label: 'Profile' },
   ];
 

@@ -10,6 +10,7 @@ import Rewards from './pages/Rewards';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Auth from './pages/Auth';
+import Community from './pages/Community';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthLoading } = useAppContext();
@@ -47,6 +48,7 @@ function AppRoutes() {
       <Route path="/rewards" element={<PrivateRoute><Layout><Rewards /></Layout></PrivateRoute>} />
       <Route path="/leaderboard" element={<PrivateRoute><Layout><Leaderboard /></Layout></PrivateRoute>} />
       <Route path="/profile" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />
+      <Route path="/community" element={<PrivateRoute><Layout><Community /></Layout></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

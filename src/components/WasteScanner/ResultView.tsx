@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle, Lightbulb, Youtube } from 'lucide-react';
+import { ArrowRight, CheckCircle, XCircle, RefreshCw, MapPin, Leaf, Zap, Trash2, Recycle, Lightbulb, Youtube, ShieldCheck, Award, PartyPopper } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ScanResult } from '../../types';
+import { useAppContext } from '../../context/AppContext';
+import { VerificationModal } from '../Profile/VerificationModal';
 
 interface ResultViewProps {
   result: ScanResult | null;
@@ -22,10 +24,16 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
+  const { scannedItems } = useAppContext();
   const [ytVideoId, setYtVideoId] = useState<string | null>(null);
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationDone, setVerificationDone] = useState(false);
+
+  // Find the matching scanned item from context by image URL (it was just added)
+  const currentItem = scannedItems.find(item => item.imageUrl === image);
 
   useEffect(() => {
-    // Attempt to fetch a top YouTube video for the DIY idea if the user has youtube API enabled
+    // Attempt to fetch a top YouTube video for the DIY idea
     if (result && result.diyIdea) {
       const fetchYT = async () => {
         try {
@@ -46,11 +54,22 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
     }
   }, [result]);
 
+  // Update verification state if the item status changes in context
+  useEffect(() => {
+    if (currentItem && (currentItem.status === 'verified_recycled' || currentItem.status === 'verified_diy' || currentItem.status === 'pending_community')) {
+      setVerificationDone(true);
+    }
+  }, [currentItem?.status]);
+
   if (!result) return null;
 
   const isRecyclable = result.isRecyclable;
   const confidencePercent = Math.round(result.confidence * 100);
   const categoryColor = CATEGORY_COLORS[result.category] || CATEGORY_COLORS.other;
+
+  const canVerify = currentItem && (currentItem.status === 'pending' || !currentItem.status) && isRecyclable && !verificationDone;
+  const isVerified = verificationDone || currentItem?.status === 'verified_recycled' || currentItem?.status === 'verified_diy';
+  const isPendingCommunity = currentItem?.status === 'pending_community';
 
   return (
     <div className="p-6 space-y-4">
@@ -93,8 +112,9 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
           <p className="text-lg font-bold text-gray-800 dark:text-white">{confidencePercent}%</p>
         </div>
         <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 text-center border border-green-100 dark:border-green-800">
-          <p className="text-xs text-green-600 dark:text-green-400 mb-1 leading-tight">Potential Points</p>
+          <p className="text-xs text-green-600 dark:text-green-400 mb-0.5 leading-tight">Points per Item</p>
           <p className="text-lg font-bold text-green-700 dark:text-green-400">+{result.points}</p>
+          <p className="text-[10px] text-green-600/70 dark:text-green-500/60 leading-tight">~{Math.round(result.points * 2.2)}/kg · ×qty at verify</p>
         </div>
         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center border border-blue-100 dark:border-blue-800">
           <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-1 leading-tight">Potential CO₂ Savings</p>
@@ -156,20 +176,97 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
         </div>
       )}
 
-      {/* Verify CTA */}
-      <div className="bg-gradient-to-br from-green-500/10 to-teal-500/10 border border-green-500/20 rounded-xl p-4 text-center space-y-3">
-        <h4 className="font-bold text-green-800 dark:text-green-300">Action Required: Verify to Earn</h4>
-        <p className="text-xs text-green-700 dark:text-green-400">You must physically verify this item by uploading a picture of it at a recycling center or as a DIY project to earn your points.</p>
-        <Link
-          to="/profile"
-          className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-medium transition-all shadow-md hover:shadow-lg hover:shadow-green-500/20"
-        >
-          <CheckCircle size={18} />
-          Go to Profile to Verify
-          <ArrowRight size={18} />
-        </Link>
-      </div>
+      {/* ═══════════════════════════════════════════════════════════════════
+          VERIFICATION SECTION — Inline verification instead of redirect
+         ═══════════════════════════════════════════════════════════════════ */}
 
+      {/* SUCCESS STATE — After verification completes */}
+      {(isVerified || isPendingCommunity) && (
+        <div className="bg-gradient-to-br from-green-500/10 via-emerald-500/5 to-teal-500/10 border border-green-400/30 dark:border-green-600/30 rounded-2xl p-6 text-center space-y-3 relative overflow-hidden">
+          {/* Background decoration */}
+          <div className="absolute top-0 right-0 w-24 h-24 bg-green-400/10 rounded-full -translate-y-6 translate-x-6" />
+          <div className="absolute bottom-0 left-0 w-20 h-20 bg-emerald-400/10 rounded-full translate-y-4 -translate-x-4" />
+          
+          <div className="relative">
+            <div className="w-16 h-16 mx-auto bg-gradient-to-br from-green-400 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/30 mb-3">
+              {isPendingCommunity ? (
+                <ShieldCheck size={32} className="text-white" />
+              ) : (
+                <Award size={32} className="text-white" />
+              )}
+            </div>
+            
+            {isPendingCommunity ? (
+              <>
+                <h4 className="font-black text-green-800 dark:text-green-300 text-xl">DIY Submitted! 🎨</h4>
+                <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                  Your project has been posted to the Community Feed. You'll earn <strong>+{result.points} points</strong> once it receives 3 community upvotes.
+                </p>
+              </>
+            ) : (
+              <>
+                <h4 className="font-black text-green-800 dark:text-green-300 text-xl flex items-center justify-center gap-2">
+                  <PartyPopper size={22} />
+                  Verified & Points Earned!
+                </h4>
+                <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                  <strong>+{result.points} points</strong> have been added to your account. Thank you for recycling responsibly! 🌍
+                </p>
+              </>
+            )}
+            
+            <div className="flex gap-2 mt-4">
+              <Link
+                to="/profile"
+                className="flex-1 bg-white/80 dark:bg-gray-800/80 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 py-2.5 px-4 rounded-xl text-sm font-semibold hover:bg-green-50 dark:hover:bg-green-900/40 transition-colors text-center"
+              >
+                View Profile
+              </Link>
+              <Link
+                to="/leaderboard"
+                className="flex-1 bg-white/80 dark:bg-gray-800/80 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 py-2.5 px-4 rounded-xl text-sm font-semibold hover:bg-green-50 dark:hover:bg-green-900/40 transition-colors text-center"
+              >
+                Leaderboard
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VERIFY NOW — Opens the verification modal inline */}
+      {canVerify && (
+        <div className="bg-gradient-to-br from-green-500/10 to-teal-500/10 border border-green-500/20 rounded-2xl p-5 text-center space-y-3">
+          <div className="w-12 h-12 mx-auto bg-green-100 dark:bg-green-900/40 rounded-xl flex items-center justify-center mb-1">
+            <ShieldCheck size={24} className="text-green-600 dark:text-green-400" />
+          </div>
+          <h4 className="font-bold text-green-800 dark:text-green-300 text-base">Verify to Earn +{result.points} Points</h4>
+          <p className="text-xs text-green-700 dark:text-green-400 leading-relaxed">
+            Upload proof that you properly recycled or upcycled this item.
+            <br />
+            <span className="text-green-600/70 dark:text-green-500/70">♻️ Recycling requires a GPS-watermarked photo · 🛠️ DIY requires multiple angles</span>
+          </p>
+          <button
+            id="verify-now-btn"
+            onClick={() => setShowVerification(true)}
+            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 font-semibold transition-all shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/30 hover:-translate-y-0.5 text-sm"
+          >
+            <ShieldCheck size={18} />
+            Verify Now
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* NOT RECYCLABLE — Show disposal info instead of verify */}
+      {!isRecyclable && !isVerified && (
+        <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            This item is not recyclable. Please dispose of it using the recommended method: <strong>{result.disposalMethod}</strong>
+          </p>
+        </div>
+      )}
+
+      {/* Find Recycling Centers */}
       {isRecyclable && (
         <Link
           to="/map"
@@ -188,6 +285,20 @@ const ResultView: React.FC<ResultViewProps> = ({ result, image, onReset }) => {
         <RefreshCw size={16} />
         Scan Another Item
       </button>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          VERIFICATION MODAL — Opens as overlay right here, no redirect
+         ═══════════════════════════════════════════════════════════════════ */}
+      {showVerification && currentItem && (
+        <VerificationModal
+          item={currentItem}
+          onClose={() => setShowVerification(false)}
+          onSuccess={() => {
+            setShowVerification(false);
+            setVerificationDone(true);
+          }}
+        />
+      )}
     </div>
   );
 };

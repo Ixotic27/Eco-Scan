@@ -52,10 +52,11 @@ service cloud.firestore {
           && request.resource.data.keys().hasAll(['result', 'date', 'recycled'])
           && request.resource.data.recycled == false;
 
-        // Only allow marking as recycled (no other field changes)
-        allow update: if isOwner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['recycled', 'recycledAt'])
-          && request.resource.data.recycled == true;
+        // Allow updates for verification workflows (recycled fields or DIY fields)
+        allow update: if isOwner(userId) && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['recycled', 'recycledAt', 'status', 'verifiedAt', 'quantity', 'quantityUnit', 'co2Saved']) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'verifiedAt'])
+        );
 
         allow delete: if false;
       }
@@ -67,6 +68,25 @@ service cloud.firestore {
           && request.resource.data.keys().hasAll(['productId', 'pointsCost', 'redeemedAt']);
         allow update, delete: if false;
       }
+    }
+
+    // ─── Community Feed ──────────────────────────────────────────────────────
+    match /communityDIY/{postId} {
+      // Anyone signed in can read the community feed
+      allow read: if isAuthenticated();
+      // Anyone signed in can create a post
+      allow create: if isAuthenticated();
+      // Anyone signed in can update upvotes
+      allow update: if isAuthenticated();
+    }
+
+    // ─── Verification Anti-Cheat ─────────────────────────────────────────────
+    match /verifiedImages/{hashId} {
+      allow read, create: if isAuthenticated();
+    }
+    
+    match /verifiedTimestamps/{lockId} {
+      allow read, create: if isAuthenticated();
     }
 
     // ─── Recycling Centers ───────────────────────────────────────────────────

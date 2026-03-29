@@ -1,17 +1,26 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { User, Award, Camera, MapPin, BarChart, Moon, Sun, Edit2, X, Check, CheckCircle, Clock } from 'lucide-react';
+import { User, Award, Camera, MapPin, BarChart, Moon, Sun, Edit2, X, Check, CheckCircle, Clock, Trash2 } from 'lucide-react';
 import { ScannedItem } from '../../types';
 import { VerificationModal } from './VerificationModal';
+import { deleteScannedItem } from '../../lib/db';
 
 const ProfileView: React.FC = () => {
-  const { user, scannedItems, theme, toggleTheme, updateUser } = useAppContext();
+  const { user, scannedItems, theme, toggleTheme, updateUser, firebaseUser } = useAppContext();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     name: user?.name || '',
     email: user?.email || '',
   });
   const [selectedVerify, setSelectedVerify] = useState<ScannedItem | null>(null);
+
+  const handleDeleteScan = async (item: ScannedItem) => {
+    if (!firebaseUser) return;
+    if (confirm('Are you sure you want to permanently delete this scan from your history?')) {
+      await deleteScannedItem(firebaseUser.uid, item.id);
+      window.location.reload(); // Quick refresh to sync state
+    }
+  };
   
   const recentItems = scannedItems.slice(0, 10);
 
@@ -203,7 +212,16 @@ const ProfileView: React.FC = () => {
                          item.result.isRecyclable ? 'Recyclable' : 'Not Recyclable'}
                       </div>
                       <div className="text-[10px] text-gray-500 dark:text-gray-400 flex flex-col items-end gap-1">
-                        <span>{new Date(item.date).toLocaleDateString()}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{new Date(item.date).toLocaleDateString()}</span>
+                          <button 
+                            onClick={() => handleDeleteScan(item)} 
+                            className="text-red-400 hover:text-red-600 transition-colors p-1"
+                            title="Delete this scan"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                         <span className="font-semibold text-green-600 dark:text-green-400">+{item.result.points} pts</span>
                       </div>
                     </div>

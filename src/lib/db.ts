@@ -6,6 +6,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   orderBy,
   where,
@@ -139,6 +140,10 @@ export async function verifyDIYItem(
 
 // ─── Community DIY Feed ───────────────────────────────────────────────────────
 
+export async function deleteScannedItem(userId: string, scanId: string): Promise<void> {
+  const ref = doc(db, 'users', userId, 'scans', scanId);
+  await deleteDoc(ref);
+}
 export async function submitDIYProject(post: Omit<CommunityDIYPost, 'id' | 'upvotes' | 'votedUserIds' | 'status'>): Promise<string> {
   const ref = collection(db, 'communityDIY');
   const docRef = await addDoc(ref, {

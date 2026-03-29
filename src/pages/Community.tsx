@@ -16,13 +16,18 @@ const Community: React.FC = () => {
     loadFeed();
   }, []);
 
+  const [debugInfo, setDebugInfo] = useState<string>('');
+
   const loadFeed = async () => {
     setLoading(true);
+    setDebugInfo('Fetching...');
     try {
       const feed = await getCommunityFeed();
       setPosts(feed);
-    } catch (err) {
+      setDebugInfo(`Successfully fetched ${feed.length} posts from communityDIY collection.`);
+    } catch (err: any) {
       console.error('Failed to load community feed:', err);
+      setDebugInfo(`ERROR: ${err.message || err.toString()}`);
     } finally {
       setLoading(false);
     }
@@ -86,6 +91,11 @@ const Community: React.FC = () => {
       </p>
 
       {/* Status Messages */}
+      {debugInfo && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl">
+          <p className="text-blue-700 dark:text-blue-400 text-xs font-mono">{debugInfo}</p>
+        </div>
+      )}
       {error && (
         <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
           <AlertCircle size={16} className="text-red-500 flex-shrink-0" />

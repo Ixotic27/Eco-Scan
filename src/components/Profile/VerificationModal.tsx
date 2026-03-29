@@ -3,7 +3,7 @@ import { X, UploadCloud, Camera, CheckCircle, AlertCircle, Loader2 } from 'lucid
 import { ScannedItem } from '../../types';
 import { useAppContext } from '../../context/AppContext';
 import { verifyRecyclingImage, verifyDIYProject } from '../../lib/gemini';
-import { isImageHashDuplicate, recordVerifiedImageHash } from '../../lib/db';
+import { isImageHashDuplicate, recordVerifiedImageHash, submitDIYProject } from '../../lib/db';
 
 interface Props {
   item: ScannedItem;
@@ -12,7 +12,7 @@ interface Props {
 }
 
 export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess }) => {
-  const { verifyRecycling, verifyDIY } = useAppContext();
+  const { verifyRecycling, verifyDIY, user } = useAppContext();
   
   const [mode, setMode] = useState<'select' | 'recycle' | 'diy'>('select');
   const [images, setImages] = useState<string[]>([]);
@@ -37,7 +37,38 @@ export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess })
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to avoid 1MB Firestore document limit
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          // Scale down
+          const MAX_SIZE = 800;
+          if (width > height && width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          } else if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress as JPEG, 70% quality
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newImages = Array.from(e.target.files);
       if (mode === 'recycle' && images.length >= 1) {
@@ -45,20 +76,15 @@ export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess })
          return;
       }
       
-      newImages.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          if (ev.target?.result) {
-            setImages(prev => [...prev, ev.target!.result as string]);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      const compressedImages = await Promise.all(newImages.map(file => compressImage(file)));
+      setImages(prev => [...prev, ...compressedImages]);
     }
   };
 
   const handleVerifyRecycle = async () => {
     if (images.length === 0) return setError("Please upload an image with a GPS timestamp watermark.");
+    if (!user) return setError("You must be logged in to verify.");
+    
     setLoading(true);
     setError(null);
     try {
@@ -77,7 +103,7 @@ export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess })
       // (Skipping strict timestamp duplication block for this prototype, but we could add it here.)
 
       // 4. Record Hash & Commit
-      await recordVerifiedImageHash(hash, 'current_user'); // passing dummy user id string for hash owner
+      await recordVerifiedImageHash(hash, user.id);
       await verifyRecycling(item.id, quantity, quantityUnit, Math.max(result.carbonSavedKg, 0), item.result.points);
       
       onSuccess();
@@ -88,13 +114,34 @@ export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess })
     }
   };
 
-  const handleVerifyDIY = async () => {
-    if (images.length < 2) return setError("Please upload at least 2 images from different angles.");
-    if (!diyMaterials) return setError("Please describe the materials you used.");
-    
-    setLoading(true);
+    const handleVerifyDIY = async () => {
+      if (images.length < 2) return setError("Please upload at least 2 images from different angles.");
+      if (!diyMaterials) return setError("Please describe the materials you used.");
+      if (!user) return setError("You must be logged in to submit a project.");
+      
+      setLoading(true);
     setError(null);
     try {
+      // Security Check 1: Ensure images are distinct from one another
+      const uniqueHashes = new Set();
+      const hashes = [];
+      for (const img of images) {
+        const h = await hashImage(img);
+        uniqueHashes.add(h);
+        hashes.push(h);
+      }
+      if (uniqueHashes.size < images.length) {
+        throw new Error("Action Blocked: You uploaded duplicate angles within the same submission.");
+      }
+
+      // Security Check 2: Ensure these images haven't been used globally in the past
+      for (const h of hashes) {
+        const isDup = await isImageHashDuplicate(h);
+        if (isDup) {
+           throw new Error("Action Blocked: At least one of these images has already been verified in EcoScan.");
+        }
+      }
+
       const result = await verifyDIYProject(images, item.result.material, diyMaterials);
       
       if (result.isAIGenerated) {
@@ -102,6 +149,22 @@ export const VerificationModal: React.FC<Props> = ({ item, onClose, onSuccess })
       }
       if (!result.valid) {
         throw new Error(`Verification Failed: ${result.reason}`);
+      }
+
+      await submitDIYProject({
+        userId: user.id,
+        userName: user.name,
+        userAvatar: user.avatar || '',
+        originalScanId: item.id,
+        originalMaterial: item.result.material,
+        diyImages: images,
+        materialsUsed: diyMaterials,
+        date: new Date().toISOString()
+      });
+
+      // Record successful hashes to prevent future reuse
+      for (const h of hashes) {
+        await recordVerifiedImageHash(h, user.id);
       }
 
       await verifyDIY(item.id);
